@@ -1,0 +1,45 @@
+/* ---------- Shared base styles ---------- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+:root {
+  --font: "Poppins", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pink: #ff6b81;
+  --pink-light: #ffa6bd;
+  --pink-dark: #ff5a73;
+  --radius: 12px;
+}
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.4;
+}
+
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+a { text-decoration: none; }
+
+.hidden { display: none !important; }
+
+/* Toast notification (used on both pages) */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translate(-50%, 30px);
+  background: #1f2937;
+  color: #fff;
+  padding: 11px 20px;
+  border-radius: 999px;
+  font-size: 13.5px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+  z-index: 999;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }

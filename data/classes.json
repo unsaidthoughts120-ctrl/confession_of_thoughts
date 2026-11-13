@@ -1,0 +1,14 @@
+{
+  "term": { "schoolYear": "2026 - 2027", "semester": "1 Semester", "yearStart": 2026, "yearEnd": 2027, "semLabel": "1st Sem" },
+  "classes": [
+    { "id": "c1", "section": "11-BSCE-02", "name": "CALCULUS 1", "teacher": "Muyargas, Glenn G", "schedule": "11:00-14:00 Tue F401", "progress": 100, "submitted": 2, "total": 2, "nextDue": null, "grade": 96 },
+    { "id": "c2", "section": "11-CEE-02", "name": "UNDERSTANDING THE SELF", "teacher": "Pidlaoan, Ella Marie B", "schedule": "- Fri", "progress": 79, "submitted": 15, "total": 19, "nextDue": "2026-11-14", "grade": 88 },
+    { "id": "c3", "section": "11-CEE-02", "name": "MOVEMENT COMPETENCY TRAINING", "teacher": "Abalos, Camela Joy V.", "schedule": "- Fri LCR / - Fri LCR", "progress": 89, "submitted": 8, "total": 9, "nextDue": null, "grade": 91 },
+    { "id": "c4", "section": "11-CEE-02", "name": "CE2 CHEMISTRY FOR ENGINEERS (LEC)", "teacher": "Misa, John Vincent A", "schedule": "08:00-11:00 Tue f401", "progress": 100, "submitted": 1, "total": 1, "nextDue": null, "grade": 94 },
+    { "id": "c5", "section": "11-CEE-02", "name": "CE2 CHEMISTRY FOR ENGINEERS (LAB)", "teacher": "Misa, John Vincent A", "schedule": "13:00-16:00 Wed LAB2", "progress": 0, "submitted": 0, "total": 3, "nextDue": null, "grade": null },
+    { "id": "c6", "section": "11-CEE-02", "name": "MATHEMATICS IN MODERN WORLD", "teacher": "Rabideau, Julia D.", "schedule": "09:00-12:00 Thu F402", "progress": 80, "submitted": 8, "total": 10, "nextDue": "2026-11-11", "grade": 85 },
+    { "id": "c7", "section": "11-CEE-02", "name": "NSTP 1 (CWTS)", "teacher": "Santos, Maria L.", "schedule": "13:00-16:00 Sat Quad", "progress": 70, "submitted": 7, "total": 10, "nextDue": "2026-11-09", "grade": 82 },
+    { "id": "c8", "section": "11-CEE-02", "name": "PURPOSIVE COMMUNICATION", "teacher": "Reyes, Andrea P.", "schedule": "10:00-12:00 Mon F305", "progress": 60, "submitted": 6, "total": 10, "nextDue": null, "grade": 79 },
+    { "id": "c9", "section": "11-CEE-02", "name": "ENGINEERING DRAWING", "teacher": "Cruz, Paolo T.", "schedule": "14:00-17:00 Mon DRW1", "progress": 100, "submitted": 5, "total": 5, "nextDue": null, "grade": 93 }
+  ]
+}
