@@ -9,7 +9,7 @@ const Auth = (() => {
     ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY)
     : null;
 
-  const COLS = "id,name,email,role,avatar,bio,created_at";
+  const COLS = "*";   // own row: includes banner once schema section 18 is run, and still works before
 
   async function fetchProfile(authUser) {
     let { data, error } = await client.from("profiles").select(COLS).eq("id", authUser.id).maybeSingle();
@@ -58,6 +58,20 @@ const Auth = (() => {
     return { profile };
   }
 
+  /** Sends a real password-reset email through Supabase. */
+  async function resetPassword(email) {
+    if (!client) throw new Error("Supabase isn't configured yet. See README.");
+    const { error } = await client.auth.resetPasswordForEmail(email.trim(), { redirectTo: new URL("index.html", location.href).href });
+    if (error) throw new Error(error.message);
+  }
+
+  /** Google / Facebook sign-in (the provider must be switched on in Supabase > Authentication > Providers). */
+  async function loginWithProvider(provider) {
+    if (!client) throw new Error("Supabase isn't configured yet. See README.");
+    const { error } = await client.auth.signInWithOAuth({ provider: provider.toLowerCase(), options: { redirectTo: new URL("dashboard.html", location.href).href } });
+    if (error) throw new Error(/not enabled|unsupported/i.test(error.message) ? `${provider} sign-in isn't switched on for this site yet.` : error.message);
+  }
+
   async function requireAuth() {
     const user = await currentUser();
     if (!user) window.location.replace("index.html");
@@ -88,5 +102,5 @@ const Auth = (() => {
 
   const isStaff = (u) => !!u && (u.role === "admin" || u.role === "developer");
 
-  return { configured, isStaff, createAdmin, get client() { return client; }, login, register, currentUser, requireAuth, logout };
+  return { configured, isStaff, createAdmin, get client() { return client; }, login, register, resetPassword, loginWithProvider, currentUser, requireAuth, logout };
 })();

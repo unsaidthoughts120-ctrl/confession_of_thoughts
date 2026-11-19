@@ -20,7 +20,10 @@ const Feed = (() => {
     me = user;
     el.innerHTML = `
       <div class="composer">
-        <textarea id="post-text" rows="3" maxlength="2000" placeholder="What's on your mind, ${esc(user.name.split(" ")[0])}?"></textarea>
+        <div class="composer-top">
+          ${Utils.avatar(user.name, user.avatar)}
+          <textarea id="post-text" rows="1" maxlength="2000" placeholder="What's on your mind, ${esc(user.name.split(" ")[0])}?"></textarea>
+        </div>
         <div class="composer-preview hidden" id="post-preview"></div>
         <div class="composer-bar">
           <label class="attach" title="Add a photo or video">
@@ -50,7 +53,8 @@ const Feed = (() => {
       refresh();
     }
 
-    text.addEventListener("input", refresh);
+    const grow = () => { text.style.height = "auto"; text.style.height = Math.min(text.scrollHeight, 220) + "px"; };
+    text.addEventListener("input", () => { grow(); refresh(); });
     file.addEventListener("change", () => {
       const f = file.files[0];
       if (!f) return;
@@ -87,7 +91,7 @@ const Feed = (() => {
           if (path) await db().storage.from(BUCKET).remove([path]);
           throw error;
         }
-        text.value = ""; clearFile();
+        text.value = ""; grow(); clearFile();
         Utils.toast("Posted!");
         await load();
       } catch (err) {
@@ -163,7 +167,7 @@ const Feed = (() => {
       <article class="post">
         <header>
           <a href="${link}" class="post-who">${Utils.avatar(name, prof && prof.avatar)}</a>
-          <div><a href="${link}" class="post-name"><strong>${esc(name)}</strong></a><small>${timeAgo(p.created_at)}</small></div>
+          <div><a href="${link}" class="post-name"><strong>${Utils.nameWithBadge(name, prof && prof.role)}</strong></a><small>${timeAgo(p.created_at)} · <svg class="globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg></small></div>
           ${canDelete ? `<button class="post-del" data-del="${esc(p.id)}" aria-label="Delete post" title="Delete post">
             <svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>` : ""}
         </header>
@@ -253,7 +257,7 @@ const Feed = (() => {
               const can = c.user_id === me.id || owner === me.id || Auth.isStaff(me);
               return `<div class="comment">
                 <a href="${c.user_id === me.id ? "#profile" : "#user-" + esc(c.user_id)}" class="post-who">${Utils.avatar(p.name, p.avatar, "sm")}</a>
-                <div class="c-bubble"><strong>${esc(p.name)}</strong> <small>${timeAgo(c.created_at)}</small>
+                <div class="c-bubble"><strong>${Utils.nameWithBadge(p.name, p.role)}</strong> <small>${timeAgo(c.created_at)}</small>
                   <p>${esc(c.body)}</p></div>
                 ${can ? `<button type="button" class="post-del" data-cdel="${esc(c.id)}" aria-label="Delete comment" title="Delete comment">×</button>` : ""}
               </div>`;

@@ -13,6 +13,7 @@ const Social = (() => {
   let onMeChanged = () => {};
   const watchers = { relations: [], presence: [] };
   let viewToken = 0;
+  const probed = new Set();       // ids we already tried to load a profile for (avoids refetch loops)
   let activeToken = 0;
 
   function on(name, fn) { watchers[name].push(fn); }
@@ -21,7 +22,7 @@ const Social = (() => {
   /* ---------- data ---------- */
   async function fetchProfiles(ids) {
     if (!ids.length) return [];
-    const { data, error } = await db().from("public_profiles").select("id,name,avatar,bio,created_at").in("id", ids);
+    const { data, error } = await db().from("public_profiles").select("id,name,avatar,banner,bio,role,created_at").in("id", ids);
     if (error) { console.warn(error.message); return []; }
     data.forEach((p) => people.set(p.id, p));
     return data;
@@ -46,7 +47,7 @@ const Social = (() => {
     return { state: r.requester_id === me.id ? "sent" : "received", row: r };
   }
 
-  const person = (id) => people.get(id) || { id, name: "Unknown", avatar: null, bio: "" };
+  const person = (id) => people.get(id) || { id, name: "Unknown", avatar: null, banner: null, bio: "", role: "student" };
   const friends = () => rels.filter((r) => r.status === "accepted").map((r) => person(other(r)));
   const incoming = () => rels.filter((r) => r.status === "pending" && r.addressee_id === me.id).map((r) => ({ row: r, p: person(r.requester_id) }));
   const outgoing = () => rels.filter((r) => r.status === "pending" && r.requester_id === me.id).map((r) => ({ row: r, p: person(r.addressee_id) }));
@@ -116,7 +117,7 @@ const Social = (() => {
     return `<div class="person-row">
       <a href="#user-${esc(p.id)}" class="person-main">
         ${Utils.avatar(p.name, p.avatar)}
-        <div><strong>${esc(p.name)}</strong><small>${p.bio ? esc(p.bio) : "No bio yet"}</small></div>
+        <div><strong>${Utils.nameWithBadge(p.name, p.role)}</strong><small>${p.bio ? esc(p.bio) : "No bio yet"}</small></div>
       </a>
       <div class="person-actions">${right}</div>
     </div>`;
@@ -126,36 +127,60 @@ const Social = (() => {
   function mountEdit(el) {
     ++viewToken;
     el.innerHTML = `
-      <h1 class="view-title">Edit profile</h1>
-      <div class="profile-edit">
+      <div class="page-intro">
+        <h1 class="view-title">Edit profile</h1>
+        <p class="sub">Choose how other people see you on ConfessHub.</p>
+      </div>
+      <form class="profile-edit" id="pf-form" novalidate>
+        <div class="banner-edit">
+          <label class="field-label">Profile banner</label>
+          <div id="banner-preview"></div>
+          <div class="pfp-btns">
+            <label class="btn-sm primary file-btn">Change banner
+              <input type="file" id="banner-file" accept="image/jpeg,image/png,image/gif,image/webp" hidden />
+            </label>
+            <button class="btn-sm ghost" id="banner-remove" type="button">Remove</button>
+          </div>
+          <small class="dim">Wide pictures look best (about 3:1) · JPG, PNG, GIF or WEBP · max 5 MB</small>
+        </div>
         <div class="pfp-edit">
           <div id="pfp-preview"></div>
-          <label class="btn-sm primary file-btn">Change photo
-            <input type="file" id="pfp-file" accept="image/jpeg,image/png,image/gif,image/webp" hidden />
-          </label>
-          <button class="btn-sm ghost" id="pfp-remove" type="button">Remove photo</button>
+          <div class="pfp-btns">
+            <label class="btn-sm primary file-btn">Change photo
+              <input type="file" id="pfp-file" accept="image/jpeg,image/png,image/gif,image/webp" hidden />
+            </label>
+            <button class="btn-sm ghost" id="pfp-remove" type="button">Remove</button>
+          </div>
+          <small class="dim">JPG, PNG, GIF or WEBP · max 5 MB</small>
         </div>
         <div class="form-col">
-          <label class="field-label" for="pf-name">Username</label>
-          <input class="text-input" id="pf-name" maxlength="40" value="${esc(me.name)}" />
+          <label class="field-label" for="pf-name">Username ${Utils.roleBadge(me.role)}</label>
+          <input class="text-input" id="pf-name" maxlength="40" autocomplete="nickname" value="${esc(me.name)}" />
           <label class="field-label" for="pf-bio">Bio <span class="dim" id="bio-count"></span></label>
           <textarea class="text-input" id="pf-bio" rows="4" maxlength="300" placeholder="Tell people a little about you…">${esc(me.bio || "")}</textarea>
-          <p class="hint">Other people can only see your photo, username and bio. Your email stays private.</p>
+          <label class="field-label" for="pf-email">Email</label>
+          <input class="text-input" id="pf-email" value="${esc(me.email || "")}" disabled />
+          <p class="hint">Other people only see your photo, username and bio. Your email stays private.</p>
           <div class="form-actions">
-            <button class="btn primary" id="pf-save">Save changes</button>
+            <button class="btn primary" id="pf-save" type="submit">Save changes</button>
           </div>
         </div>
-      </div>`;
+      </form>`;
 
     const $ = (s) => el.querySelector(s);
     let pickedFile = null, previewUrl = null, removed = false;
+    let bannerFile = null, bannerPreview = null, bannerRemoved = false;
 
     const drawPfp = () => {
       const url = removed ? null : (previewUrl || me.avatar);
       $("#pfp-preview").innerHTML = Utils.avatar($("#pf-name").value || me.name, url, "xl");
     };
+    const drawBanner = () => {
+      const url = bannerRemoved ? null : (bannerPreview || me.banner);
+      $("#banner-preview").innerHTML = Utils.banner(url);
+    };
     const countBio = () => { $("#bio-count").textContent = `${$("#pf-bio").value.length}/300`; };
-    drawPfp(); countBio();
+    drawPfp(); drawBanner(); countBio();
 
     $("#pf-bio").addEventListener("input", countBio);
     $("#pf-name").addEventListener("input", () => { if (!previewUrl && (removed || !me.avatar)) drawPfp(); });
@@ -169,6 +194,22 @@ const Social = (() => {
       previewUrl = URL.createObjectURL(f);
       drawPfp();
     });
+    $("#banner-file").addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      if (!/^image\/(jpeg|png|gif|webp)$/.test(f.type)) { e.target.value = ""; return Utils.toast("Please choose a JPG, PNG, GIF or WEBP picture."); }
+      if (f.size > MAX_AVATAR) { e.target.value = ""; return Utils.toast("That picture is over 5 MB."); }
+      bannerFile = f; bannerRemoved = false;
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+      bannerPreview = URL.createObjectURL(f);
+      drawBanner();
+    });
+    $("#banner-remove").addEventListener("click", () => {
+      bannerFile = null; bannerRemoved = true;
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+      bannerPreview = null; $("#banner-file").value = "";
+      drawBanner();
+    });
     $("#pfp-remove").addEventListener("click", () => {
       pickedFile = null; removed = true;
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -176,35 +217,69 @@ const Social = (() => {
       drawPfp();
     });
 
-    $("#pf-save").addEventListener("click", async () => {
+    /** Update the profile row and make sure a row was really changed (RLS can silently match 0 rows). */
+    async function saveRow(fields) {
+      const run = () => db().from("profiles").update(fields).eq("id", me.id).select("id");
+      let res = await run();
+      if (!res.error && !(res.data && res.data.length)) {
+        await db().rpc("ensure_my_profile");          // profile row missing? create it, then retry once
+        res = await run();
+      }
+      if (res.error) throw res.error;
+      if (!res.data || !res.data.length)
+        throw new Error("The database refused the update. Re-run supabase/schema.sql (section 16) in Supabase.");
+    }
+
+    $("#pf-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
       const name = $("#pf-name").value.trim();
       const bio = $("#pf-bio").value.trim();
       if (!name) return Utils.toast("Username can't be empty.");
       const btn = $("#pf-save");
       btn.disabled = true; btn.textContent = "Saving…";
+      const uploaded = [];      // new files, removed again if the save fails
+      /** Upload one picture into this person's folder and return its public URL. */
+      const upload = async (file, prefix) => {
+        const ext = (file.name.match(/\.(\w{1,5})$/) || [, "jpg"])[1].toLowerCase();
+        const path = `${me.id}/${prefix}${Date.now()}.${ext}`;
+        const up = await db().storage.from(AVATAR_BUCKET).upload(path, file, { contentType: file.type, cacheControl: "3600" });
+        if (up.error) throw new Error(/bucket not found/i.test(up.error.message)
+          ? "Photo storage isn't set up yet. Re-run supabase/schema.sql (section 16) in Supabase."
+          : /row-level security|not authorized|policy/i.test(up.error.message)
+            ? "Photo upload was blocked. Re-run supabase/schema.sql (section 16) in Supabase."
+            : up.error.message);
+        uploaded.push(path);
+        return db().storage.from(AVATAR_BUCKET).getPublicUrl(path).data.publicUrl;
+      };
       try {
-        let avatar = me.avatar || null;
-        const oldPath = avatarPath(me.avatar);
-        if (pickedFile) {
-          const safe = pickedFile.name.replace(/[^\w.\-]+/g, "_");
-          const path = `${me.id}/${Date.now()}-${safe}`;
-          const up = await db().storage.from(AVATAR_BUCKET).upload(path, pickedFile, { contentType: pickedFile.type });
-          if (up.error) throw up.error;
-          avatar = db().storage.from(AVATAR_BUCKET).getPublicUrl(path).data.publicUrl;
-        } else if (removed) {
-          avatar = null;
+        let avatar = me.avatar || null, banner = me.banner || null;
+        const oldPath = avatarPath(me.avatar), oldBanner = avatarPath(me.banner);
+        if (pickedFile) avatar = await upload(pickedFile, "");
+        else if (removed) avatar = null;
+        if (bannerFile) banner = await upload(bannerFile, "banner-");
+        else if (bannerRemoved) banner = null;
+        try { await saveRow({ name, bio, avatar, banner }); }
+        catch (err) {
+          if (/banner/i.test(err.message || "")) throw new Error("Banner isn't set up yet. Re-run supabase/schema.sql (section 18) in Supabase.");
+          throw err;
         }
-        const { error } = await db().from("profiles").update({ name, bio, avatar }).eq("id", me.id);
-        if (error) throw error;
-        if (oldPath && avatar !== me.avatar) await db().storage.from(AVATAR_BUCKET).remove([oldPath]);
-        me.name = name; me.bio = bio; me.avatar = avatar;
-        people.set(me.id, { id: me.id, name, bio, avatar, created_at: me.created_at });
+        const stale = [];
+        if (oldPath && avatar !== me.avatar) stale.push(oldPath);
+        if (oldBanner && banner !== me.banner) stale.push(oldBanner);
+        if (stale.length) db().storage.from(AVATAR_BUCKET).remove(stale).catch(() => {});
+        me.name = name; me.bio = bio; me.avatar = avatar; me.banner = banner;
+        people.set(me.id, { id: me.id, name, bio, avatar, banner, role: me.role, created_at: me.created_at });
         if (presence) presence.track({ name, avatar });
         onMeChanged();
-        pickedFile = null; removed = false;
+        pickedFile = null; removed = false; bannerFile = null; bannerRemoved = false; uploaded.length = 0;
+        if (bannerPreview) { URL.revokeObjectURL(bannerPreview); bannerPreview = null; }
+        $("#pfp-file").value = ""; $("#banner-file").value = "";
+        drawBanner();
+        emit("presence");
         Utils.toast("Profile saved!");
       } catch (err) {
-        Utils.toast("Couldn't save: " + (err.message || err));
+        if (uploaded.length) db().storage.from(AVATAR_BUCKET).remove(uploaded).catch(() => {});
+        Utils.toast("Couldn't save: " + (err.message || err), 5000);
       } finally {
         btn.disabled = false; btn.textContent = "Save changes";
       }
@@ -223,7 +298,7 @@ const Social = (() => {
     el.innerHTML = `<div class="empty">Loading profile…</div>`;
 
     // Ask the database directly so a real error is never mistaken for "no such user".
-    const { data, error } = await db().from("public_profiles").select("id,name,avatar,bio,created_at").eq("id", id).maybeSingle();
+    const { data, error } = await db().from("public_profiles").select("id,name,avatar,banner,bio,role,created_at").eq("id", id).maybeSingle();
     if (token !== viewToken) return;
 
     let p = data;
@@ -233,7 +308,7 @@ const Social = (() => {
       const known = people.get(id);
       const live = online.get(id);
       if (known) p = known;
-      else if (live) p = { id, name: live.name || "Unknown", avatar: live.avatar || null, bio: "", created_at: null };
+      else if (live) p = { id, name: live.name || "Unknown", avatar: live.avatar || null, bio: "", role: "student", created_at: null };
     }
 
     if (!p) {
@@ -255,14 +330,18 @@ const Social = (() => {
       const isFriend = relation(id).state === "friends";
       el.innerHTML = `
         <p class="today"><a href="#dashboard" style="color:var(--accent)">← Back</a></p>
+        <div class="profile-card">
+        ${Utils.banner(p.banner)}
         <div class="profile-head">
           ${Utils.avatar(p.name, p.avatar, "xl")}
           <div class="profile-info">
-            <h1 class="view-title">${esc(p.name)}</h1>
+            <h1 class="view-title profile-name">${Utils.nameWithBadge(p.name, p.role)}</h1>
+            ${p.role === "developer" || p.role === "admin" ? `<p class="staff-note">${p.role === "developer" ? "Developer of ConfessHub" : "Admin / moderator"} · verified staff account</p>` : ""}
             <p class="bio">${p.bio ? esc(p.bio) : '<span class="dim">No bio yet.</span>'}</p>
             <small class="dim">${[joined ? `Joined ${Utils.formatShortDate(joined)}, ${joined.getFullYear()}` : "", isOnline(id) ? '<span class="online-text">● Online now</span>' : ""].filter(Boolean).join(" · ")}</small>
           </div>
-          <div class="profile-actions">${actionsHTML(id)}</div>
+          <div class="profile-actions"><a class="btn-sm primary" href="#messages-${esc(id)}">Message</a> ${actionsHTML(id)}</div>
+        </div>
         </div>
         <div id="profile-posts"></div>`;
       bindActions(el);
@@ -323,7 +402,7 @@ const Social = (() => {
     };
     const search = async () => {
       const q = el.querySelector("#user-q").value.trim();
-      let query = db().from("public_profiles").select("id,name,avatar,bio,created_at").neq("id", me.id).limit(30);
+      let query = db().from("public_profiles").select("id,name,avatar,banner,bio,role,created_at").neq("id", me.id).limit(30);
       query = q ? query.ilike("name", `%${q}%`).order("name") : query.order("created_at", { ascending: false });
       const { data, error } = await query;
       if (token !== viewToken) return;
@@ -347,12 +426,15 @@ const Social = (() => {
       const metaOf = (id) => (id === me.id ? { name: me.name, avatar: me.avatar } : online.get(id));
       ids.sort((a, b) => (a === me.id ? -1 : b === me.id ? 1 : (friendIds.has(b) - friendIds.has(a)) || metaOf(a).name.localeCompare(metaOf(b).name)));
       countEl.textContent = ids.length;
+      // Roles aren't in the presence data: fetch any profile we haven't seen yet, then redraw once.
+      const unknown = ids.filter((id) => !people.has(id) && !probed.has(id));
+      if (unknown.length) { unknown.forEach((id) => probed.add(id)); fetchProfiles(unknown).then(() => { if (listEl.isConnected) draw(); }); }
       listEl.innerHTML = ids.map((id) => {
         const m = metaOf(id);
         const tag = id === me.id ? "You" : friendIds.has(id) ? "Friend" : "";
         return `<a class="active-user" href="${id === me.id ? "#profile" : "#user-" + esc(id)}">
           <span class="av-wrap">${Utils.avatar(m.name, m.avatar, "sm")}<i class="dot"></i></span>
-          <span class="active-name">${esc(m.name)}</span>${tag ? `<small>${tag}</small>` : ""}
+          <span class="active-name">${Utils.nameWithBadge(m.name, id === me.id ? me.role : (people.get(id) || {}).role)}</span>${tag ? `<small>${tag}</small>` : ""}
         </a>`;
       }).join("");
     };
@@ -365,7 +447,7 @@ const Social = (() => {
   async function init(user, { onMeChange } = {}) {
     me = user;
     onMeChanged = onMeChange || (() => {});
-    people.set(me.id, { id: me.id, name: me.name, avatar: me.avatar, bio: me.bio || "", created_at: me.created_at });
+    people.set(me.id, { id: me.id, name: me.name, avatar: me.avatar, banner: me.banner || null, bio: me.bio || "", role: me.role, created_at: me.created_at });
 
     presence = db().channel("online-users", { config: { presence: { key: me.id } } });
     presence

@@ -9,6 +9,7 @@ const Communities = (() => {
   let renderer = null;   // () => reload the current view
   let token = 0;
   let channel = null;
+  let chatChannel = null;   // live chat of the community currently open
 
   function init(user) {
     me = user;
@@ -66,6 +67,7 @@ const Communities = (() => {
   async function mount(el) {
     host = el;
     const my = ++token;
+    if (chatChannel) { db().removeChannel(chatChannel); chatChannel = null; }
     renderer = () => draw(el, my);
     el.innerHTML = `<h1 class="view-title">Communities</h1><div class="empty">Loading…</div>`;
     await draw(el, my);
@@ -175,6 +177,97 @@ const Communities = (() => {
     }));
   }
 
+  /* ================= community chat ================= */
+  async function mountChat(box, cid, my) {
+    let msgs = [];
+    const paint = (stick = true) => {
+      if (!box.isConnected) return;
+      const log = box.querySelector("#cchat-log");
+      const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+      const html = msgs.length
+        ? msgs.map((m) => {
+            const mine = m.user_id === me.id;
+            const p = Social.person(m.user_id);
+            const row = Messages.bubble(mine, mine ? null : p.name, m.body, m.created_at, p.role);
+            return row.replace('<div class="bubble-row', `<div data-mid="${esc(m.id)}" class="bubble-row`);
+          }).join("")
+        : `<div class="empty">No messages yet. Start the conversation!</div>`;
+      const draft = box.querySelector("#cchat-input") ? box.querySelector("#cchat-input").value : "";
+      box.innerHTML = `
+        <div class="chat-log" id="cchat-log">${html}</div>
+        <form class="chat-form" id="cchat-form" autocomplete="off">
+          <input class="text-input" id="cchat-input" maxlength="1000" placeholder="Message the community…" enterkeyhint="send" />
+          <button class="btn primary" type="submit">Send</button>
+        </form>`;
+      const l = box.querySelector("#cchat-log");
+      if (stick || atBottom) l.scrollTop = l.scrollHeight;
+      const input = box.querySelector("#cchat-input");
+      input.value = draft;
+      if (draft) input.focus();
+      box.querySelector("#cchat-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = "";
+        const { data, error } = await db().from("community_messages")
+          .insert({ community_id: cid, user_id: me.id, body: text }).select().single();
+        if (error) { input.value = text; Utils.toast(/schema cache|relation/i.test(error.message) ? "Re-run supabase/schema.sql in Supabase to turn on community chat." : "Couldn't send: " + error.message, 4500); return; }
+        if (data && !msgs.some((m) => m.id === data.id)) msgs.push(data);
+        paint(true);
+        const again = box.querySelector("#cchat-input"); if (again) again.focus();
+      });
+    };
+
+    const fetchAll = async () => {
+      const { data, error } = await db().from("community_messages").select("*").eq("community_id", cid).order("created_at", { ascending: false }).limit(200);
+      if (my !== token || !box.isConnected) return;
+      if (error) { box.innerHTML = `<div class="empty">Chat unavailable: ${esc(error.message)}</div>`; return; }
+      msgs = data.slice().reverse();
+      await Social.fetchProfiles([...new Set(msgs.map((m) => m.user_id))]);
+      if (my !== token || !box.isConnected) return;
+      paint(false);
+    };
+
+    await fetchAll();
+    if (my !== token) return;
+    paint(true);
+    chatChannel = db().channel("community-chat-" + cid)
+      .on("postgres_changes", { event: "*", schema: "public", table: "community_messages", filter: `community_id=eq.${cid}` }, fetchAll)
+      .subscribe();
+  }
+
+  /* ================= add people (any user) ================= */
+  function mountAddList(el, cid, memberIds, done, personRow) {
+    const results = el.querySelector("#add-results");
+    const count = el.querySelector("#add-count");
+    const q = el.querySelector("#add-q");
+    let timer, seq = 0;
+
+    const search = async () => {
+      const mine = ++seq;
+      const term = q.value.trim();
+      let query = db().from("public_profiles").select("id,name,avatar,bio,role,created_at").limit(40);
+      query = term ? query.ilike("name", `%${term}%`).order("name") : query.order("name");
+      const { data, error } = await query;
+      if (mine !== seq || !results.isConnected) return;
+      if (error) { results.innerHTML = `<div class="empty">Couldn't load people: ${esc(error.message)}</div>`; return; }
+      const list = data.filter((p) => !memberIds.has(p.id));
+      count.textContent = list.length;
+      results.innerHTML = list.length
+        ? list.map((p) => personRow(p, `<button class="btn-sm primary" data-add="${esc(p.id)}">Add</button>`)).join("")
+        : `<div class="empty">${term ? "No one found with that name." : "Everyone is already in this community."}</div>`;
+      results.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", async () => {
+        b.disabled = true;
+        const { error: e2 } = await db().rpc("add_community_member", { cid, target: b.dataset.add });
+        if (e2) { Utils.toast("Couldn't add: " + e2.message, 4500); b.disabled = false; return; }
+        Utils.toast("Added to the community.");
+        done();
+      }));
+    };
+    q.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(search, 250); });
+    search();
+  }
+
   /* ================= one community ================= */
   async function mountDetail(el, id) {
     host = el;
@@ -202,13 +295,12 @@ const Communities = (() => {
     if (my !== token) return;
 
     const memberIds = new Set(members.map((x) => x.user_id));
-    const addable = isMember ? Social.friends().filter((f) => !memberIds.has(f.id)) : [];
 
     const personRow = (p, right) => `
       <div class="person-row">
         <a href="${p.id === me.id ? "#profile" : "#user-" + esc(p.id)}" class="person-main">
           ${Utils.avatar(p.name, p.avatar)}
-          <div><strong>${esc(p.name)}${p.id === me.id ? ' <span class="dim">(you)</span>' : ""}</strong><small>${p.bio ? esc(p.bio) : "No bio yet"}</small></div>
+          <div><strong>${Utils.nameWithBadge(p.name, p.id === me.id ? me.role : p.role)}${p.id === me.id ? ' <span class="dim">(you)</span>' : ""}</strong><small>${p.bio ? esc(p.bio) : "No bio yet"}</small></div>
         </a>
         <div class="person-actions">${right}</div>
       </div>`;
@@ -229,10 +321,13 @@ const Communities = (() => {
       </div>
 
       ${isMember ? `
-      <h2 class="section-title">Add friends <span class="count-chip">${addable.length}</span></h2>
-      ${addable.length
-        ? addable.map((f) => personRow(f, `<button class="btn-sm primary" data-add="${esc(f.id)}">Add</button>`)).join("")
-        : `<div class="empty">${Social.friends().length ? "All your friends are already in this community." : `You have no friends to add yet. <a href="#users" style="color:var(--accent)">Find people</a> and send a friend request first.`}</div>`}` : ""}
+      <h2 class="section-title">Chat</h2>
+      <div class="dev-card com-chat" id="com-chat"></div>
+
+      <h2 class="section-title">Add people <span class="count-chip" id="add-count">…</span></h2>
+      <p class="hint" style="margin-top:0">Everyone with an account can be added. They get a notification and can chat right away.</p>
+      <input class="text-input search-input" id="add-q" placeholder="Search by username…" maxlength="40" autocomplete="off" />
+      <div id="add-results"><div class="empty">Loading people…</div></div>` : ""}
 
       <h2 class="section-title">Members <span class="count-chip">${members.length}</span></h2>
       ${members.map((x) => {
@@ -243,13 +338,11 @@ const Communities = (() => {
         return personRow(p, tags + rm);
       }).join("")}`;
 
-    el.querySelectorAll("[data-add]").forEach((b) => b.addEventListener("click", async () => {
-      b.disabled = true;
-      const { error } = await db().rpc("add_community_member", { cid: id, target: b.dataset.add });
-      if (error) { Utils.toast("Couldn't add: " + error.message); b.disabled = false; return; }
-      Utils.toast("Added to the community.");
-      drawDetail(el, id, my);
-    }));
+    if (chatChannel) { db().removeChannel(chatChannel); chatChannel = null; }
+    if (isMember) {
+      mountChat(el.querySelector("#com-chat"), id, my);
+      mountAddList(el, id, memberIds, () => drawDetail(el, id, my), personRow);
+    }
     el.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", async () => {
       if (!confirm(`Remove ${b.dataset.name} from this community?`)) return;
       const { error } = await db().from("community_members").delete().eq("community_id", id).eq("user_id", b.dataset.remove);

@@ -81,12 +81,24 @@
     }
   });
 
-  document.getElementById("forgot-link").addEventListener("click", (e) => {
+  document.getElementById("forgot-link").addEventListener("click", async (e) => {
     e.preventDefault();
-    Utils.toast("Password reset isn't wired up in this demo.");
+    const email = document.getElementById("login-email").value;
+    const err = document.getElementById("login-error");
+    err.textContent = "";
+    if (!validEmail(email)) return (err.textContent = "Enter your email above first, then press Forgot Password.");
+    try {
+      await Auth.resetPassword(email);
+      Utils.toast("Password reset link sent. Check your email.", 5000);
+    } catch (ex) {
+      err.textContent = ex.message;
+    }
   });
 
   document.querySelectorAll(".social-btn").forEach((b) =>
-    b.addEventListener("click", () => Utils.toast(`${b.dataset.provider} login isn't wired up in this demo.`))
+    b.addEventListener("click", async () => {
+      try { await Auth.loginWithProvider(b.dataset.provider); }
+      catch (ex) { document.getElementById("login-error").textContent = ex.message; }
+    })
   );
 })();

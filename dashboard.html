@@ -7,7 +7,7 @@
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="css/base.css" />
   <link rel="stylesheet" href="css/dashboard.css" />
   <script>
@@ -21,14 +21,14 @@
 <body class="app-body">
 
   <div class="app" id="app">
+    <div class="scrim" id="scrim"></div>
 
     <!-- ================= SIDEBAR ================= -->
     <aside class="sidebar" id="sidebar">
       <div class="brand">
-        <img src="assets/logo.svg" alt="" class="brand-logo" />
-        <span class="brand-name">CONFESS HUB</span>
+        <img class="brand-logo" src="assets/logo.svg" alt="" />
+        <span class="brand-name">CONFESS<b>HUB</b></span>
       </div>
-
       <nav class="nav">
         <a href="#dashboard" class="nav-item" data-view="dashboard">
           <svg viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/></svg>
@@ -48,22 +48,12 @@
           <span class="nav-badge hidden" id="com-badge">0</span>
         </a>
 
-        <a href="#profile" class="nav-item" data-view="profile">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.7-3.7 3.4-5.5 7-5.5s6.3 1.8 7 5.5"/></svg>
-          <span>Edit profile</span>
+        <p class="nav-heading">Social</p>
+        <a href="#messages" class="nav-item" data-view="messages">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 011 1v10a1 1 0 01-1 1h-9l-5 4v-4H4a1 1 0 01-1-1V6a1 1 0 011-1z"/></svg>
+          <span>Messages</span>
+          <span class="nav-badge hidden" id="nav-msg-badge">0</span>
         </a>
-
-        <a href="#admin" class="nav-item hidden" id="nav-admin" data-view="admin">
-          <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
-          <span>Admin panel</span>
-        </a>
-
-        <a href="#developer" class="nav-item hidden" id="nav-developer" data-view="developer">
-          <svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>
-          <span>Developer</span>
-        </a>
-
-        <p class="nav-heading">FRIEND AREA</p>
         <button class="nav-item nav-toggle" id="classes-toggle" aria-expanded="false">
           <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M2.5 20c.6-3.6 3.2-5.4 6.5-5.4s5.9 1.8 6.5 5.4M16 4.8a3.2 3.2 0 010 6.4M18 14.8c2 .6 3.2 2.3 3.5 5.2"/></svg>
           <span>Friends</span>
@@ -76,44 +66,67 @@
           <span class="nav-badge hidden" id="req-badge">0</span>
         </a>
 
-        <p class="nav-heading">SEARCH AREA</p>
+        <p class="nav-heading">Resources</p>
+        <a href="#attachments" class="nav-item" data-view="attachments">
+          <svg viewBox="0 0 24 24"><path d="M20.5 11.5l-8.2 8.2a5 5 0 01-7-7l8.5-8.5a3.3 3.3 0 014.7 4.7l-8.5 8.5a1.7 1.7 0 01-2.4-2.4l7.8-7.8"/></svg>
+          <span>Attachment</span>
+        </a>
         <button class="nav-item nav-toggle" id="library-toggle" aria-expanded="false">
           <svg viewBox="0 0 24 24"><path d="M4 4h5v16H4zM11 4h5v16h-5zM18 6l3 .8-3.4 13-3-.8z"/></svg>
-          <span>SEARCH HERE</span>
+          <span>Search here</span>
           <svg class="chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
         </button>
         <div class="subnav hidden" id="library-subnav">
           <a href="#users" class="subnav-item" data-view="users">User</a>
           <a href="#library" class="subnav-item" data-view="library">Post / Link</a>
         </div>
-      </nav>
 
-      <div class="sidebar-foot" id="sy-label">SY 2026 - 2027 · 1 Semester</div>
+        <p class="nav-heading">Account</p>
+        <a href="#contact" class="nav-item" data-view="contact">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z"/><path d="M3 7l9 6 9-6"/></svg>
+          <span>Contact staff</span>
+        </a>
+        <a href="#profile" class="nav-item" data-view="profile">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c.7-3.7 3.4-5.5 7-5.5s6.3 1.8 7 5.5"/></svg>
+          <span>Edit profile</span>
+        </a>
+        <a href="#admin" class="nav-item hidden" id="nav-admin" data-view="admin">
+          <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>
+          <span>Admin panel</span>
+        </a>
+        <a href="#developer" class="nav-item hidden" id="nav-developer" data-view="developer">
+          <svg viewBox="0 0 24 24"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>
+          <span>Developer</span>
+        </a>
+      </nav>
     </aside>
 
     <!-- ================= MAIN ================= -->
     <div class="main">
       <header class="topbar">
-        <button class="icon-btn" id="menu-btn" aria-label="Toggle sidebar">
-          <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-        </button>
+        <div class="tb-left">
+          <button class="icon-btn" id="menu-btn" aria-label="Toggle menu">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+        </div>
 
         <div class="topbar-right">
-          <button class="icon-btn" id="theme-btn" aria-label="Toggle theme">
+          <button class="icon-btn round" id="theme-btn" aria-label="Toggle theme">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2L6 6M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8L6 18M18 6l1.8-1.8"/></svg>
           </button>
 
+          <button class="icon-btn round" id="chat-btn" aria-label="Messages">
+            <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 011 1v10a1 1 0 01-1 1h-9l-5 4v-4H4a1 1 0 01-1-1V6a1 1 0 011-1z"/></svg>
+            <span class="badge hidden" id="msg-badge">0</span>
+          </button>
+
           <div class="notif-wrap">
-            <button class="icon-btn" id="notif-btn" aria-label="Notifications">
+            <button class="icon-btn round" id="notif-btn" aria-label="Notifications">
               <svg viewBox="0 0 24 24"><path d="M6 17V11a6 6 0 0112 0v6l2 2H4zM10 21h4"/></svg>
               <span class="badge hidden" id="notif-badge">0</span>
             </button>
             <div class="notif-panel hidden" id="notif-panel"></div>
           </div>
-
-          <button class="icon-btn" id="chat-btn" aria-label="Messages">
-            <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 011 1v10a1 1 0 01-1 1h-9l-5 4v-4H4a1 1 0 01-1-1V6a1 1 0 011-1z"/></svg>
-          </button>
 
           <div class="user-wrap">
             <button class="avatar" id="avatar-btn" aria-label="Account menu"></button>
@@ -142,10 +155,13 @@
   <script src="js/social.js"></script>
   <script src="js/notify.js"></script>
   <script src="js/announce.js"></script>
+  <script src="js/messages.js"></script>
   <script src="js/communities.js"></script>
   <script src="js/feed.js"></script>
   <script src="js/admin.js"></script>
   <script src="js/developer.js"></script>
+  <script src="js/contact.js"></script>
+  <script src="js/attachments.js"></script>
   <script src="js/dashboard.js"></script>
 </body>
 </html>

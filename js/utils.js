@@ -64,5 +64,25 @@ const Utils = (() => {
     return `<span class="av ${size}">${inner}</span>`;
   }
 
-  return { initials, avatar, toast, escapeHTML, loadJSON, startOfDay, daysBetween, formatTime, formatShortDate, formatLongDate, greeting };
+  /** Wide cover image for a profile; a soft gradient when the person hasn't picked one. */
+  function banner(url, cls = "") {
+    return `<div class="banner ${url ? "" : "empty"} ${cls}">${url ? `<img src="${escapeHTML(url)}" alt="" loading="lazy" />` : ""}</div>`;
+  }
+
+  /** Badge shown next to the name of a developer or admin. Students get nothing. */
+  function roleBadge(role) {
+    if (role !== "developer" && role !== "admin") return "";
+    const label = role === "developer" ? "Developer" : "Admin";
+    const icon = role === "developer"
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>';
+    return `<span class="role-badge ${role}" title="${label}">${icon}${label}</span>`;
+  }
+
+  /** Escaped name followed by the role badge (if any). */
+  function nameWithBadge(name, role) {
+    return `${escapeHTML(name)}${roleBadge(role)}`;
+  }
+
+  return { initials, avatar, banner, roleBadge, nameWithBadge, toast, escapeHTML, loadJSON, startOfDay, daysBetween, formatTime, formatShortDate, formatLongDate, greeting };
 })();

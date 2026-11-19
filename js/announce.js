@@ -4,6 +4,8 @@
    - Once a person has seen it (pressed "Got it" or closed it) it never pops up again.
      "Seen" is saved in the database (announcement_seen), plus a local copy as a backup.
    - After 24 hours it stops popping up but stays on the Announcements page.
+   - An announcement is for everyone (audience = null) or only for the people picked by the author
+     (audience = list of user ids). The database only lets those people (and the author / developer) read it.
 */
 const Announce = (() => {
   const esc = Utils.escapeHTML;
@@ -25,6 +27,9 @@ const Announce = (() => {
   const lsKey = () => "studyhub.annSeen." + me.id;
   const readLocal = () => { try { return JSON.parse(localStorage.getItem(lsKey()) || "[]"); } catch { return []; } };
   const writeLocal = () => { try { localStorage.setItem(lsKey(), JSON.stringify([...seen].slice(-200))); } catch {} };
+
+  /** Was this one sent to specific people instead of everyone? */
+  const isPrivate = (a) => Array.isArray(a.audience);
 
   const isFresh = (a) => Date.now() - new Date(a.created_at).getTime() < DAY;
   /** Should this one pop up / count as new? Fresh, not mine, not seen yet. */
@@ -80,7 +85,7 @@ const Announce = (() => {
     wrap.innerHTML = `
       <div class="modal notif-popup ann-popup" role="dialog" aria-modal="true" aria-labelledby="ann-title">
         <div class="np-icon ann"><svg viewBox="0 0 24 24"><path d="M3 11v3a1 1 0 001 1h3l6 4V6L7 10H4a1 1 0 00-1 1zM16 8a5 5 0 010 8"/></svg></div>
-        <small class="ann-kicker">Announcement</small>
+        <small class="ann-kicker">${isPrivate(a) ? "Announcement · for you" : "Announcement"}</small>
         <h3 id="ann-title">${esc(a.title)}</h3>
         ${a.body ? `<p class="ann-text">${esc(a.body)}</p>` : ""}
         <small class="ann-meta">From ${esc(a.author_name || roleLabel)} · ${roleLabel} · ${timeAgo(a.created_at)}</small>
@@ -137,10 +142,15 @@ const Announce = (() => {
   }
 
   /* ----- staff actions ----- */
-  async function post({ title, body }) {
-    const { data, error } = await db().from("announcements")
-      .insert({ author_id: me.id, title: title.trim(), body: body.trim() }).select().single();
-    if (error) throw new Error(error.message);
+  /** `audience`: array of user ids, or null / empty for everyone. */
+  async function post({ title, body, audience }) {
+    const row = { author_id: me.id, title: title.trim(), body: body.trim() };
+    if (audience && audience.length) row.audience = audience;
+    const { data, error } = await db().from("announcements").insert(row).select().single();
+    if (error) {
+      if (/audience/i.test(error.message)) throw new Error("Choosing who gets it needs a database update. Re-run supabase/schema.sql (section 18) in Supabase.");
+      throw new Error(error.message);
+    }
     if (!items.some((x) => x.id === data.id)) items.unshift(data);
     seen.add(data.id); writeLocal();
     emit();
@@ -155,7 +165,7 @@ const Announce = (() => {
   }
 
   return {
-    init, on, post, remove, markSeen, markAllSeen, isNew, isFresh,
+    init, on, post, remove, markSeen, markAllSeen, isNew, isFresh, isPrivate,
     list: () => items,
     get newCount() { return items.filter(isNew).length; }
   };

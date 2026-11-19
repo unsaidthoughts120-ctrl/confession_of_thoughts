@@ -724,3 +724,249 @@ create trigger login_events_notify_staff after insert on public.login_events
 do $$ begin
   begin alter publication supabase_realtime add table public.announcements; exception when duplicate_object then null; end;
 end $$;
+
+
+-- =====================================================================
+-- 15) Messages  (1-to-1 chat + community chat)  and "approved communities can add ANY user"
+-- =====================================================================
+-- Direct messages: you can message your friends and anyone you share a community with.
+create or replace function public.can_message(target uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select target <> auth.uid() and (
+    exists (select 1 from public.friendships f
+            where f.status = 'accepted'
+              and ((f.requester_id = auth.uid() and f.addressee_id = target)
+                or (f.requester_id = target and f.addressee_id = auth.uid())))
+    or exists (select 1 from public.community_members a
+               join public.community_members b on b.community_id = a.community_id
+               where a.user_id = auth.uid() and b.user_id = target)
+  );
+$$;
+
+create table if not exists public.messages (
+  id           uuid primary key default gen_random_uuid(),
+  sender_id    uuid not null references public.profiles(id) on delete cascade,
+  recipient_id uuid not null references public.profiles(id) on delete cascade,
+  body         text not null check (char_length(trim(body)) between 1 and 1000),
+  created_at   timestamptz not null default now(),
+  read_at      timestamptz
+);
+create index if not exists messages_pair_idx      on public.messages (sender_id, recipient_id, created_at desc);
+create index if not exists messages_inbox_idx     on public.messages (recipient_id, created_at desc);
+alter table public.messages enable row level security;
+
+drop policy if exists "messages read own" on public.messages;
+create policy "messages read own" on public.messages for select to authenticated
+  using (sender_id = auth.uid() or recipient_id = auth.uid());
+drop policy if exists "messages send" on public.messages;
+create policy "messages send" on public.messages for insert to authenticated
+  with check (sender_id = auth.uid() and public.can_message(recipient_id));
+-- the receiver may only flip read_at (nothing else is updatable)
+revoke update on public.messages from anon, authenticated;
+grant update (read_at) on public.messages to authenticated;
+drop policy if exists "messages mark read" on public.messages;
+create policy "messages mark read" on public.messages for update to authenticated
+  using (recipient_id = auth.uid()) with check (recipient_id = auth.uid());
+drop policy if exists "messages delete own" on public.messages;
+create policy "messages delete own" on public.messages for delete to authenticated using (sender_id = auth.uid());
+
+-- Community chat: every member of an approved community can read and write; staff can read / moderate.
+create table if not exists public.community_messages (
+  id           uuid primary key default gen_random_uuid(),
+  community_id uuid not null references public.communities(id) on delete cascade,
+  user_id      uuid not null references public.profiles(id) on delete cascade,
+  body         text not null check (char_length(trim(body)) between 1 and 1000),
+  created_at   timestamptz not null default now()
+);
+create index if not exists community_messages_idx on public.community_messages (community_id, created_at);
+alter table public.community_messages enable row level security;
+
+drop policy if exists "cmsg read" on public.community_messages;
+create policy "cmsg read" on public.community_messages for select to authenticated
+  using (public.is_community_member(community_id) or public.is_admin());
+drop policy if exists "cmsg insert" on public.community_messages;
+create policy "cmsg insert" on public.community_messages for insert to authenticated
+  with check (user_id = auth.uid() and public.is_community_member(community_id));
+drop policy if exists "cmsg delete" on public.community_messages;
+create policy "cmsg delete" on public.community_messages for delete to authenticated
+  using (user_id = auth.uid() or public.community_owner(community_id) = auth.uid() or public.is_admin());
+
+-- Any member of an approved community can now add ANY user (not only their friends).
+create or replace function public.add_community_member(cid uuid, target uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare cname text; who text;
+begin
+  if not public.is_community_member(cid) then raise exception 'Only members can add people'; end if;
+  if not exists (select 1 from public.profiles where id = target) then raise exception 'That user does not exist'; end if;
+
+  insert into public.community_members (community_id, user_id, added_by)
+  values (cid, target, auth.uid()) on conflict do nothing;
+  if found then
+    select name into cname from public.communities where id = cid;
+    select name into who from public.profiles where id = auth.uid();
+    insert into public.notifications (user_id, kind, title, body, link)
+    values (target, 'community_added', 'Added to a community',
+            coalesce(who, 'Someone') || ' added you to "' || cname || '".', '#community-' || cid);
+  end if;
+end $$;
+revoke all on function public.add_community_member(uuid, uuid) from public, anon;
+grant execute on function public.add_community_member(uuid, uuid) to authenticated;
+
+do $$ begin
+  begin alter publication supabase_realtime add table public.messages;           exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.community_messages; exception when duplicate_object then null; end;
+end $$;
+
+
+-- =====================================================================
+-- 16) Repair: edit profile (photo + name + bio) and messaging  -- safe to re-run
+-- =====================================================================
+-- Profile: users may update ONLY name / avatar / bio on their own row.
+drop policy if exists "profiles update own" on public.profiles;
+create policy "profiles update own" on public.profiles for update to authenticated
+  using (id = auth.uid()) with check (id = auth.uid());
+revoke update on public.profiles from anon, authenticated;
+grant  update (name, avatar, bio) on public.profiles to authenticated;
+
+-- Profile pictures: bucket must exist, be public, and allow upload / read / delete of your own folder.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', true, 5242880, array['image/jpeg','image/png','image/gif','image/webp'])
+on conflict (id) do update set public = true, file_size_limit = 5242880,
+  allowed_mime_types = array['image/jpeg','image/png','image/gif','image/webp'];
+
+drop policy if exists "avatar read" on storage.objects;
+create policy "avatar read" on storage.objects for select using (bucket_id = 'avatars');
+drop policy if exists "avatar upload" on storage.objects;
+create policy "avatar upload" on storage.objects for insert to authenticated
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "avatar delete" on storage.objects;
+create policy "avatar delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- Messages: make sure signed-in users can read / send, and that realtime is on.
+grant select, insert, delete on public.messages           to authenticated;
+grant select, insert, delete on public.community_messages to authenticated;
+grant execute on function public.can_message(uuid) to authenticated;
+do $$ begin
+  begin alter publication supabase_realtime add table public.messages;           exception when duplicate_object then null; end;
+  begin alter publication supabase_realtime add table public.community_messages; exception when duplicate_object then null; end;
+end $$;
+
+
+-- =====================================================================
+-- 17) Role badges: let everyone see WHICH accounts are Developer / Admin
+-- =====================================================================
+-- Only the role is added (never the email). Re-run safe.
+create or replace view public.public_profiles as
+  select id, name, avatar, bio, role, created_at from public.profiles;
+revoke all on public.public_profiles from anon, authenticated;
+grant select on public.public_profiles to authenticated;
+
+
+-- =====================================================================
+-- 18) Profile banner, "Contact staff", and announcements to chosen people  -- safe to re-run
+-- =====================================================================
+-- Profile banner (a wide cover picture; stored in the same public "avatars" bucket, in your own folder).
+alter table public.profiles add column if not exists banner text;
+alter table public.profiles drop constraint if exists profiles_banner_https;
+alter table public.profiles add constraint profiles_banner_https check (banner is null or banner ~ '^https://') not valid;
+grant update (name, avatar, bio, banner) on public.profiles to authenticated;
+
+-- Other users can see the banner (new column goes LAST so the view can be replaced in place).
+create or replace view public.public_profiles as
+  select id, name, avatar, bio, role, created_at, banner from public.profiles;
+revoke all on public.public_profiles from anon, authenticated;
+grant select on public.public_profiles to authenticated;
+
+-- Contact staff: anyone may message the developer / an admin, and staff may reply to anyone.
+-- (Friends and people who share a community can still message each other as before.)
+create or replace function public.can_message(target uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select target <> auth.uid() and (
+    public.is_admin()
+    or exists (select 1 from public.profiles t where t.id = target and t.role in ('admin','developer'))
+    or exists (select 1 from public.friendships f
+               where f.status = 'accepted'
+                 and ((f.requester_id = auth.uid() and f.addressee_id = target)
+                   or (f.requester_id = target and f.addressee_id = auth.uid())))
+    or exists (select 1 from public.community_members a
+               join public.community_members b on b.community_id = a.community_id
+               where a.user_id = auth.uid() and b.user_id = target)
+  );
+$$;
+grant execute on function public.can_message(uuid) to authenticated;
+
+-- Announcements to everyone (audience is null) or only to the people the staff member picked.
+-- Only those people, the author and the developer can read a targeted announcement.
+alter table public.announcements add column if not exists audience uuid[];
+alter table public.announcements drop constraint if exists announcements_audience_len;
+alter table public.announcements add constraint announcements_audience_len
+  check (audience is null or cardinality(audience) between 1 and 500);
+
+drop policy if exists "ann read" on public.announcements;
+create policy "ann read" on public.announcements for select to authenticated
+  using (audience is null or auth.uid() = any(audience) or author_id = auth.uid() or public.is_developer());
+
+
+-- =====================================================================
+-- 19) Attachments: shared folders of photos and code, managed by admin / developer only
+--     Students can only SEE photos. Safe to re-run.
+-- =====================================================================
+create table if not exists public.attachment_folders (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null references public.profiles(id) on delete cascade default auth.uid(),
+  name       text not null check (char_length(name) between 1 and 60),
+  created_at timestamptz not null default now()
+);
+create table if not exists public.attachments (
+  id         uuid primary key default gen_random_uuid(),
+  owner_id   uuid not null references public.profiles(id) on delete cascade default auth.uid(),
+  folder_id  uuid references public.attachment_folders(id) on delete set null,  -- null = not in a folder (still shows under "All")
+  kind       text not null check (kind in ('photo','code')),
+  title      text check (title is null or char_length(title) <= 120),
+  media_url  text check (media_url is null or media_url ~ '^https://'),
+  code       text check (code is null or char_length(code) <= 50000),
+  created_at timestamptz not null default now()
+);
+create index if not exists attachments_owner_idx on public.attachments (owner_id, created_at desc);
+create index if not exists attachments_folder_idx on public.attachments (folder_id);
+
+alter table public.attachment_folders enable row level security;
+alter table public.attachments        enable row level security;
+
+-- remove the old "only the owner" policies
+drop policy if exists "folders own" on public.attachment_folders;
+drop policy if exists "attachments own" on public.attachments;
+drop policy if exists "folders read" on public.attachment_folders;
+drop policy if exists "folders staff write" on public.attachment_folders;
+drop policy if exists "attachments read" on public.attachments;
+drop policy if exists "attachments staff write" on public.attachments;
+
+-- Folders: everyone signed in can see them; only admin / developer can add, rename, delete.
+create policy "folders read" on public.attachment_folders for select to authenticated using (true);
+create policy "folders staff write" on public.attachment_folders for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- Attachments: students see photos only; staff see photos and code and are the only ones who can change anything.
+create policy "attachments read" on public.attachments for select to authenticated
+  using (kind = 'photo' or public.is_admin());
+create policy "attachments staff write" on public.attachments for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+grant select, insert, update, delete on public.attachment_folders to authenticated;
+grant select, insert, update, delete on public.attachments        to authenticated;
+
+-- Photo storage (public URLs; only admin / developer can upload or delete, inside their own folder)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('attachments', 'attachments', true, 10485760,
+        array['image/jpeg','image/png','image/gif','image/webp'])
+on conflict (id) do nothing;
+
+drop policy if exists "attachments read" on storage.objects;
+create policy "attachments read" on storage.objects for select using (bucket_id = 'attachments');
+drop policy if exists "attachments upload" on storage.objects;
+create policy "attachments upload" on storage.objects for insert to authenticated
+  with check (bucket_id = 'attachments' and public.is_admin() and (storage.foldername(name))[1] = auth.uid()::text);
+drop policy if exists "attachments delete" on storage.objects;
+create policy "attachments delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'attachments' and public.is_admin());
